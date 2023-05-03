@@ -83,10 +83,10 @@ cp "$trino_client" "${WORK_DIR}/"
 tar -C "${WORK_DIR}" -xzf "${WORK_DIR}/trino-server-${TRINO_VERSION}.tar.gz"
 rm "${WORK_DIR}/trino-server-${TRINO_VERSION}.tar.gz"
 shopt -s extglob
-find "${WORK_DIR}/trino-server-${TRINO_VERSION}"/plugin -type d -maxdepth 1 ! \( -name jmx -o -name memory \) -exec rm -rf {} +
+find "${WORK_DIR}/trino-server-${TRINO_VERSION}"/plugin -type d -mindepth 1 -maxdepth 1 ! \( -name jmx -o -name memory \) -exec rm -rf {} +
 cp -R "$TRINO_DIR/bin" "${WORK_DIR}/trino-server-${TRINO_VERSION}"
 cp -R "$TRINO_DIR/default" "${WORK_DIR}/"
-find "${WORK_DIR}"/default/etc/catalog -type f -maxdepth 1 ! \( -name jmx.properties -o -name memory.properties \) -exec rm -f {} +
+find "${WORK_DIR}"/default/etc/catalog -type f -mindepth 1 -maxdepth 1 ! \( -name jmx.properties -o -name memory.properties \) -exec rm -f {} +
 
 TAG_PREFIX="trino:${TRINO_VERSION}"
 
