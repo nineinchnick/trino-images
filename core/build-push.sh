@@ -8,6 +8,7 @@
 # * pushes the images with a manifest
 
 set -euo pipefail
+set +H
 
 usage() {
     cat <<EOF 1>&2
@@ -54,7 +55,7 @@ cd "${SCRIPT_DIR}" || exit 2
 
 echo "🎣 Downloading server and client artifacts for release version ${TRINO_VERSION}"
 for artifactId in io.trino:trino-server:"${TRINO_VERSION}":tar.gz io.trino:trino-cli:"${TRINO_VERSION}":jar:executable; do
-    mvn -C dependency:get -Dtransitive=false -Dartifact="$artifactId"
+    mvn -B -C dependency:get -Dtransitive=false -Dartifact="$artifactId"
 done
 local_repo=$(mvn -B help:evaluate -Dexpression=settings.localRepository -q -DforceStdout)
 trino_server="$local_repo/io/trino/trino-server/${TRINO_VERSION}/trino-server-${TRINO_VERSION}.tar.gz"
