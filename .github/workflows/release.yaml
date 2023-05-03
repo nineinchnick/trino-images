@@ -26,4 +26,4 @@ jobs:
 
       - name: Build and push Docker image
         run: |
-          ./core/build-push.sh -r ${{ inputs.version }}
+          bash -x ./core/build-push.sh -r ${{ inputs.version }}
