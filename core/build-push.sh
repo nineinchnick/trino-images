@@ -108,7 +108,11 @@ echo "🏃 Testing built images"
 # shellcheck disable=SC1091
 source "$TRINO_DIR/container-test.sh"
 
-arch=$(uname -m)
+arch="$(dpkg --print-architecture || uname -m)"
+case "$arch" in
+    i386 | i686 | x86_64 | darwin-amd64) arch="amd64" ;;
+    arm) arch="arm64" ;;
+esac
 # TODO: remove when https://github.com/multiarch/qemu-user-static/issues/128 is fixed
 if [[ $arch != "ppc64le" ]]; then
     test_container "${TAG_PREFIX}-$arch" "linux/$arch"
