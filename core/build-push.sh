@@ -18,16 +18,24 @@ Builds the Trino Docker image
 -h       Display help
 -a       Build the specified comma-separated architectures, defaults to amd64,arm64,ppc64le
 -r       Build the specified Trino release version, downloads all required artifacts
+-j       Build the Trino release with specified Temurin JDK release
 EOF
 }
+
+# Retrieve the script directory.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+cd "${SCRIPT_DIR}" || exit 2
 
 ARCHITECTURES=(amd64 arm64 ppc64le)
 TRINO_VERSION=
 
-while getopts ":a:h:r:" o; do
+# Must match https://api.adoptium.net/q/swagger-ui/#/Release%20Info/getReleaseNames
+TEMURIN_RELEASE=
+
+while getopts ":a:h:r:t:" o; do
     case "${o}" in
         a)
-            IFS=, read -ra ARCHITECTURES <<<"$OPTARG"
+            IFS=, read -ra ARCHITECTURES <<< "$OPTARG"
             ;;
         r)
             TRINO_VERSION=${OPTARG}
@@ -35,6 +43,9 @@ while getopts ":a:h:r:" o; do
         h)
             usage
             exit 0
+            ;;
+        t)
+            TEMURIN_RELEASE="${OPTARG}"
             ;;
         *)
             usage
@@ -44,25 +55,16 @@ while getopts ":a:h:r:" o; do
 done
 shift $((OPTIND - 1))
 
-if [ -z "$TRINO_VERSION" ]; then
-    echo >&2 "ERROR: Trino version is required"
-    exit 2
-fi
+function check_environment() {
+    if ! command -v jq &> /dev/null; then
+        echo >&2 "Please install jq"
+        exit 1
+    fi
+}
 
-function temurin_jdk_link() {
-  JDK_VERSION="${1}"
-  ARCH="${2}"
-
-  versionsUrl="https://api.adoptium.net/v3/info/release_names?heap_size=normal&image_type=jdk&lts=true&os=linux&page=0&page_size=20&project=jdk&release_type=ga&semver=false&sort_method=DEFAULT&sort_order=ASC&vendor=eclipse&version=%28${JDK_VERSION}%2C%5D"
-  if ! result=$(curl -fLs "$versionsUrl" -H 'accept: application/json'); then
-    echo >&2 "Failed to fetch release names for JDK version [${JDK_VERSION}, ) from Temurin API : $result"
-    exit 1
-  fi
-
-  if ! RELEASE_NAME=$(echo "$result" | jq -er '.releases[]' | grep "${JDK_VERSION}" | head -n 1); then
-    echo >&2 "Failed to determine release name: ${RELEASE_NAME}"
-    exit 1
-  fi
+function temurin_download_link() {
+  local RELEASE_NAME="${1}"
+  local ARCH="${2}"
 
   case "${ARCH}" in
     arm64)
@@ -81,9 +83,12 @@ function temurin_jdk_link() {
   esac
 }
 
-# Retrieve the script directory.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-cd "${SCRIPT_DIR}" || exit 2
+check_environment
+
+if [ -z "$TRINO_VERSION" ]; then
+    echo >&2 "ERROR: Trino version is required"
+    exit 2
+fi
 
 echo "🎣 Downloading server and client artifacts for release version ${TRINO_VERSION}"
 for artifactId in io.trino:trino-server:"${TRINO_VERSION}":tar.gz io.trino:trino-cli:"${TRINO_VERSION}":jar:executable; do
@@ -105,9 +110,12 @@ rm -rf trino
         ;
     cd trino
     git checkout "$TRINO_VERSION" -- core/docker
-    git checkout "$TRINO_VERSION" -- .java-version
+    git checkout "$TRINO_VERSION" -- .temurin-release
 )
 TRINO_DIR=trino/core/docker
+if [ -z "$TEMURIN_RELEASE" ]; then
+    TEMURIN_RELEASE=$(cat trino/.temurin-release)
+fi
 
 echo "🧱 Preparing the image build context directory"
 WORK_DIR="$(mktemp -d)"
@@ -122,16 +130,15 @@ cp -R "$TRINO_DIR/default" "${WORK_DIR}/"
 find "${WORK_DIR}"/default/etc/catalog -type f -mindepth 1 -maxdepth 1 ! \( -name jmx.properties -o -name memory.properties \) -exec rm -f {} +
 
 TAG_PREFIX="trino:${TRINO_VERSION}"
-JDK_VERSION=$(cat trino/.java-version)
 
 for arch in "${ARCHITECTURES[@]}"; do
-    echo "🫙  Building the image for $arch with JDK ${JDK_VERSION}"
+    echo "🫙  Building the image for $arch with Temurin Release ${TEMURIN_RELEASE}"
     docker build \
         "${WORK_DIR}" \
         --progress=plain \
         --pull \
-        --build-arg JDK_VERSION="${JDK_VERSION}" \
-        --build-arg JDK_DOWNLOAD_LINK="$(temurin_jdk_link "${JDK_VERSION}" "${arch}")" \
+        --build-arg JDK_VERSION="${TEMURIN_RELEASE}" \
+        --build-arg JDK_DOWNLOAD_LINK="$(temurin_download_link "${TEMURIN_RELEASE}" "${arch}")" \
         --platform "linux/$arch" \
         -f "$TRINO_DIR/Dockerfile" \
         -t "${TAG_PREFIX}-$arch" \
