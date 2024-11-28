@@ -19,6 +19,7 @@ Builds the Trino Docker image
 -a       Build the specified comma-separated architectures, defaults to amd64,arm64,ppc64le
 -r       Build the specified Trino release version, downloads all required artifacts
 -j       Build the Trino release with specified JDK distribution
+-x       Skip image tests
 EOF
 }
 
@@ -34,7 +35,9 @@ TRINO_VERSION=
 JDK_RELEASE=""
 JDKS_PATH="${SOURCE_DIR}/core/jdk"
 
-while getopts ":a:h:r:j:" o; do
+SKIP_TESTS=false
+
+while getopts ":a:h:r:j:x" o; do
     case "${o}" in
         a)
             IFS=, read -ra ARCH_ARG <<< "$OPTARG"
@@ -56,6 +59,9 @@ while getopts ":a:h:r:j:" o; do
         j)
             JDK_RELEASE="${OPTARG}"
             ;;
+        x)
+           SKIP_TESTS=true
+           ;;
         *)
             usage
             exit 1
@@ -141,6 +147,7 @@ for arch in "${ARCHITECTURES[@]}"; do
         "${WORK_DIR}" \
         --progress=plain \
         --pull \
+        --build-arg ARCH="${arch}" \
         --build-arg JDK_VERSION="${JDK_RELEASE}" \
         --build-arg JDK_DOWNLOAD_LINK="$(jdk_download_link "${JDKS_PATH}/${JDK_RELEASE}" "${arch}")" \
         --platform "linux/$arch" \
@@ -152,20 +159,25 @@ done
 echo "🧹 Cleaning up the build context directory"
 rm -r "${WORK_DIR}"
 
-echo "🏃 Testing built images"
-# shellcheck disable=SC1091
-source "$TRINO_DIR/container-test.sh"
+echo -n "🏃 Testing built images"
+if [[ "${SKIP_TESTS}" == "true" ]];then
+    echo " (skipped)"
+else
+    echo
+    # shellcheck disable=SC1091
+    source "$TRINO_DIR/container-test.sh"
 
-arch="$(dpkg --print-architecture || uname -m)"
-case "$arch" in
-    i386 | i686 | x86_64 | darwin-amd64) arch="amd64" ;;
-    arm) arch="arm64" ;;
-esac
-# TODO: remove when https://github.com/multiarch/qemu-user-static/issues/128 is fixed
-if [[ $arch != "ppc64le" ]]; then
-    test_container "${TAG_PREFIX}-$arch" "linux/$arch"
+    arch="$(dpkg --print-architecture || uname -m)"
+    case "$arch" in
+        i386 | i686 | x86_64 | darwin-amd64) arch="amd64" ;;
+        arm) arch="arm64" ;;
+    esac
+    # TODO: remove when https://github.com/multiarch/qemu-user-static/issues/128 is fixed
+    if [[ $arch != "ppc64le" ]]; then
+        test_container "${TAG_PREFIX}-$arch" "linux/$arch"
+    fi
+    docker image inspect -f '🚀 Built {{.RepoTags}} {{.Id}}' "${TAG_PREFIX}-$arch"
 fi
-docker image inspect -f '🚀 Built {{.RepoTags}} {{.Id}}' "${TAG_PREFIX}-$arch"
 
 echo "Pushing built images"
 REPO=nineinchnick/trino-core
